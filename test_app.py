@@ -4,9 +4,10 @@ from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
 
-from relatorio_auditoria_inventario.app import (
+from app import (
     InventoryReport,
     Settings,
+    _get_google_service,
     app,
     consultar_respostas_inventario,
 )
@@ -55,6 +56,29 @@ class InventoryReportTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"status": "ok"})
 
+    @patch("app.build")
+    @patch("app.Credentials.from_authorized_user_info")
+    def test_builds_google_service_from_token_json(
+        self,
+        from_authorized_user_info: Mock,
+        build: Mock,
+    ) -> None:
+        settings = Settings(
+            spreadsheet_id="spreadsheet-id",
+            worksheet="Respostas ao formulário 1",
+            range_name="A:AA",
+            token_file=None,
+            token_json='{"type":"authorized_user","client_id":"id"}',
+        )
+
+        service = _get_google_service(settings)
+
+        self.assertIs(service, build.return_value)
+        from_authorized_user_info.assert_called_once_with(
+            {"type": "authorized_user", "client_id": "id"},
+            ("https://www.googleapis.com/auth/spreadsheets.readonly",),
+        )
+
     def test_auditorias_endpoint_returns_report(self) -> None:
         report = InventoryReport(
             columns=[{"key": "hotel", "label": "Hotel"}],
@@ -64,7 +88,7 @@ class InventoryReportTests(TestCase):
         )
 
         with patch(
-            "relatorio_auditoria_inventario.app.consultar_respostas_inventario",
+            "app.consultar_respostas_inventario",
             return_value=report,
         ):
             with TestClient(app) as client:

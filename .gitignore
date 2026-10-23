@@ -8,3 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Local configuration and Google credentials
+.env
+token*.json
+credentials*.json

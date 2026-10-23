@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import google.auth
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
-from google.auth.exceptions import RefreshError
+from google.auth.exceptions import DefaultCredentialsError, RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -18,7 +20,7 @@ from googleapiclient.errors import HttpError
 from pydantic import BaseModel
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parent
 load_dotenv(PROJECT_ROOT / ".env")
 
 LOGGER = logging.getLogger(__name__)
@@ -38,7 +40,8 @@ class Settings:
     spreadsheet_id: str
     worksheet: str
     range_name: str
-    token_file: Path
+    token_file: Path | None
+    token_json: str | None = field(default=None, repr=False)
 
 
 class Column(BaseModel):
@@ -61,11 +64,14 @@ def _required_env(name: str) -> str:
 
 
 def get_settings() -> Settings:
+    token_file = os.getenv("GOOGLE_SHEETS_TOKEN_FILE", "").strip()
+    token_json = os.getenv("GOOGLE_SHEETS_TOKEN_JSON", "").strip()
     return Settings(
         spreadsheet_id=_required_env("INVENTARIO_SPREADSHEET_ID"),
         worksheet=_required_env("INVENTARIO_WORKSHEET"),
         range_name=os.getenv("INVENTARIO_RANGE", "A:AA").strip() or "A:AA",
-        token_file=Path(_required_env("GOOGLE_SHEETS_TOKEN_FILE")),
+        token_file=Path(token_file) if token_file else None,
+        token_json=token_json or None,
     )
 
 
@@ -88,6 +94,25 @@ def _json_key(label: str, index: int, used_keys: set[str]) -> str:
 
 
 def _get_google_service(settings: Settings) -> Any:
+    if settings.token_json is not None:
+        try:
+            token_info = json.loads(settings.token_json)
+            credentials = Credentials.from_authorized_user_info(token_info, SCOPES)
+        except (json.JSONDecodeError, TypeError, ValueError) as error:
+            raise ConfigurationError(
+                "GOOGLE_SHEETS_TOKEN_JSON não contém um token OAuth válido."
+            ) from error
+        return build("sheets", "v4", credentials=credentials, cache_discovery=False)
+
+    if settings.token_file is None:
+        try:
+            credentials, _ = google.auth.default(scopes=SCOPES)
+        except DefaultCredentialsError as error:
+            raise ConfigurationError(
+                "Credenciais padrão do Google Cloud não encontradas."
+            ) from error
+        return build("sheets", "v4", credentials=credentials, cache_discovery=False)
+
     if not settings.token_file.is_file():
         raise ConfigurationError(
             "Token Google não encontrado no caminho configurado em "
@@ -101,7 +126,6 @@ def _get_google_service(settings: Settings) -> Any:
         )
         if credentials.expired and credentials.refresh_token:
             credentials.refresh(Request())
-            settings.token_file.write_text(credentials.to_json(), encoding="utf-8")
     except (OSError, RefreshError, ValueError) as error:
         raise GoogleSheetsError("Não foi possível validar ou renovar o token Google.") from error
 

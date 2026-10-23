@@ -1,7 +1,25 @@
 [project]
 name = "relatorio-auditoria-inventario-api"
 version = "0.1.0"
-description = "Add your description here"
+description = "API de relatórios de auditoria de inventário"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "fastapi>=0.115,<1",
+    "google-api-python-client>=2.0,<3",
+    "google-auth>=2.0,<3",
+    "python-dotenv>=1.0,<2",
+    "uvicorn>=0.34,<1",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28,<1",
+]
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["app"]
